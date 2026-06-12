@@ -196,11 +196,24 @@ function renderIndexPage(error = "") {
       <p>Convert Instagram recipes to AnyList</p>
     </div>
     <form method="POST" action="/api/convert">
-      <input name="url" type="url" placeholder="Paste Instagram reel URL..." required autofocus>
+      <input id="urlInput" name="url" type="url" placeholder="Paste Instagram reel URL..." required autofocus>
       <button type="submit">Convert Recipe</button>
     </form>
     ${error ? `<div class="error">${error}</div>` : ""}
   </div>
+  <script>
+    async function autoPasteFromClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text.includes("instagram.com")) {
+          document.getElementById("urlInput").value = text;
+        }
+      } catch (err) {
+        // Clipboard access denied or empty, just continue
+      }
+    }
+    autoPasteFromClipboard();
+  </script>
 </body>
 </html>`;
 }
