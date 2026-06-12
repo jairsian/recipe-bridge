@@ -1,5 +1,7 @@
 {
   "name": "recipe-bridge",
   "version": "1.0.0",
-  "dependencies": {}
+  "dependencies": {
+    "@vercel/node": "^3.0.0"
+  }
 }
