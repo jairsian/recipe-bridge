@@ -103,6 +103,18 @@ const SHARED_STYLES = `
     font-style: italic;
   }
   .author { color: #999; font-size: 14px; }
+  .instagram-link {
+    display: inline-block;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 10px 16px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 16px 0;
+  }
+  .instagram-link:hover { opacity: 0.9; }
 `;
 
 function renderRecipePage(data) {
@@ -145,7 +157,8 @@ function renderRecipePage(data) {
     <div itemscope itemtype="https://schema.org/Recipe">
       <h1 itemprop="name">${data.name}</h1>
       ${data.author ? `<p class="author">by <span itemprop="author">${data.author}</span></p>` : ""}
-      ${data.image ? `<img itemprop="image" src="${data.image}" alt="${data.name}">` : ""}
+      ${data.image ? `<img itemprop="image" src="${data.image}" alt="${data.name}" onerror="this.style.display='none'">` : ""}
+      <a href="${data.sourceUrl}" target="_blank" class="instagram-link">📸 View on Instagram</a>
       <meta itemprop="url" content="${data.sourceUrl}">
 
       ${metaItems.length > 0 ? `<div class="meta">${metaItems.join("")}</div>` : ""}
