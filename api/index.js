@@ -196,23 +196,38 @@ function renderIndexPage(error = "") {
       <p>Convert Instagram recipes to AnyList</p>
     </div>
     <form method="POST" action="/api/convert">
-      <input id="urlInput" name="url" type="url" placeholder="Paste Instagram reel URL..." required autofocus>
-      <button type="submit">Convert Recipe</button>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input id="urlInput" name="url" type="url" placeholder="Paste Instagram reel URL..." required autofocus style="flex: 1;">
+        <button type="button" id="pasteBtn" style="background: #667eea; padding: 12px 12px; width: auto;">📋</button>
+      </div>
+      <button type="submit" style="width: 100%;">Convert Recipe</button>
     </form>
     ${error ? `<div class="error">${error}</div>` : ""}
   </div>
   <script>
-    async function autoPasteFromClipboard() {
+    async function pasteFromClipboard() {
       try {
         const text = await navigator.clipboard.readText();
-        if (text && text.includes("instagram.com")) {
+        if (text) {
           document.getElementById("urlInput").value = text;
+          document.getElementById("urlInput").focus();
         }
       } catch (err) {
-        // Clipboard access denied or empty, just continue
+        alert("Couldn't access clipboard. Paste manually.");
       }
     }
-    autoPasteFromClipboard();
+
+    document.getElementById("pasteBtn").addEventListener("click", (e) => {
+      e.preventDefault();
+      pasteFromClipboard();
+    });
+
+    // Auto-paste on desktop on load
+    window.addEventListener("load", () => {
+      if (window.innerWidth > 600) {
+        pasteFromClipboard();
+      }
+    });
   </script>
 </body>
 </html>`;
