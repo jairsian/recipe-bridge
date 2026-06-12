@@ -1,29 +1,131 @@
 const { parseCaption } = require("./parse.js");
 
+const SHARED_STYLES = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+    color: #333;
+    line-height: 1.6;
+  }
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  h1, h2 { font-weight: 600; margin-top: 24px; margin-bottom: 12px; }
+  h1 { font-size: 28px; }
+  h2 { font-size: 20px; border-bottom: 2px solid #ff6b35; padding-bottom: 8px; }
+  p { margin-bottom: 12px; }
+  ul, ol { margin: 16px 0 16px 20px; }
+  li { margin-bottom: 8px; }
+  img { max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; }
+  input, button {
+    font-family: inherit;
+    border: none;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 16px;
+  }
+  input {
+    width: 100%;
+    border: 1px solid #ddd;
+    margin-bottom: 12px;
+    background: white;
+  }
+  input:focus { outline: none; border-color: #ff6b35; }
+  button {
+    background: linear-gradient(135deg, #ff6b35 0%, #e64a3c 100%);
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+    transition: transform 0.2s;
+    width: 100%;
+  }
+  button:active { transform: scale(0.98); }
+  .error {
+    background: #ffe0e0;
+    color: #c33;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .header h1 {
+    background: linear-gradient(135deg, #ff6b35 0%, #e64a3c 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-size: 32px;
+    margin: 0 0 8px 0;
+  }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+    padding: 16px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .meta-item { text-align: center; }
+  .meta-label { font-size: 12px; color: #999; text-transform: uppercase; }
+  .meta-value { font-size: 18px; font-weight: 600; color: #ff6b35; margin-top: 4px; }
+  .nutrition {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .nutrition-item {
+    background: white;
+    padding: 12px;
+    border-radius: 6px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .nutrition-label { font-size: 12px; color: #999; }
+  .nutrition-value { font-size: 16px; font-weight: 600; color: #333; margin-top: 4px; }
+  .description {
+    background: #fff9f5;
+    padding: 16px;
+    border-left: 4px solid #ff6b35;
+    border-radius: 4px;
+    margin: 20px 0;
+    font-style: italic;
+  }
+  .author { color: #999; font-size: 14px; }
+`;
+
 function renderRecipePage(data) {
   const nutHtml = data.nutrition ? `
-    <div itemprop="nutrition" itemscope itemtype="https://schema.org/NutritionInformation">
-      ${data.nutrition.calories ? `<p>Calories: <span itemprop="calories">${data.nutrition.calories} calories</span></p>` : ""}
-      ${data.nutrition.protein ? `<p>Protein: <span itemprop="proteinContent">${data.nutrition.protein}</span></p>` : ""}
-      ${data.nutrition.carbs ? `<p>Carbs: <span itemprop="carbohydrateContent">${data.nutrition.carbs}</span></p>` : ""}
-      ${data.nutrition.fat ? `<p>Fat: <span itemprop="fatContent">${data.nutrition.fat}</span></p>` : ""}
-      ${data.nutrition.fiber ? `<p>Fiber: <span itemprop="fiberContent">${data.nutrition.fiber}</span></p>` : ""}
+    <div class="nutrition" itemprop="nutrition" itemscope itemtype="https://schema.org/NutritionInformation">
+      ${data.nutrition.calories ? `<div class="nutrition-item"><div class="nutrition-label">Calories</div><div class="nutrition-value" itemprop="calories">${data.nutrition.calories}</div></div>` : ""}
+      ${data.nutrition.protein ? `<div class="nutrition-item"><div class="nutrition-label">Protein</div><div class="nutrition-value" itemprop="proteinContent">${data.nutrition.protein}</div></div>` : ""}
+      ${data.nutrition.carbs ? `<div class="nutrition-item"><div class="nutrition-label">Carbs</div><div class="nutrition-value" itemprop="carbohydrateContent">${data.nutrition.carbs}</div></div>` : ""}
+      ${data.nutrition.fat ? `<div class="nutrition-item"><div class="nutrition-label">Fat</div><div class="nutrition-value" itemprop="fatContent">${data.nutrition.fat}</div></div>` : ""}
+      ${data.nutrition.fiber ? `<div class="nutrition-item"><div class="nutrition-label">Fiber</div><div class="nutrition-value" itemprop="fiberContent">${data.nutrition.fiber}</div></div>` : ""}
     </div>
   ` : "";
 
-  const timeHtml = `
-    ${data.prepTimeIso ? `<p>Prep: <time itemprop="prepTime" datetime="${data.prepTimeIso}">${data.prepTimeHuman}</time></p>` : ""}
-    ${data.cookTimeIso ? `<p>Cook: <time itemprop="cookTime" datetime="${data.cookTimeIso}">${data.cookTimeHuman}</time></p>` : ""}
-    ${data.totalTimeIso && !data.prepTimeIso && !data.cookTimeIso ? `
-      <p>Prep: <time itemprop="prepTime" datetime="${data.totalTimeIso}">${data.totalTimeHuman}</time></p>
-      <p>Cook: <time itemprop="cookTime" datetime="${data.totalTimeIso}">${data.totalTimeHuman}</time></p>
-    ` : ""}
-  `;
+  const metaItems = [];
+  if (data.yield_) metaItems.push(`<div class="meta-item"><div class="meta-label">Serves</div><div class="meta-value" itemprop="recipeYield">${data.yield_}</div></div>`);
+  if (data.prepTimeIso) metaItems.push(`<div class="meta-item"><div class="meta-label">Prep</div><div class="meta-value"><time itemprop="prepTime" datetime="${data.prepTimeIso}">${data.prepTimeHuman}</time></div></div>`);
+  if (data.cookTimeIso) metaItems.push(`<div class="meta-item"><div class="meta-label">Cook</div><div class="meta-value"><time itemprop="cookTime" datetime="${data.cookTimeIso}">${data.cookTimeHuman}</time></div></div>`);
+  if (data.totalTimeIso && !data.prepTimeIso && !data.cookTimeIso) metaItems.push(`<div class="meta-item"><div class="meta-label">Time</div><div class="meta-value"><time itemprop="totalTime" datetime="${data.totalTimeIso}">${data.totalTimeHuman}</time></div></div>`);
 
   const ingHtml = data.ingredients.map(ing => `<li itemprop="recipeIngredient">${ing}</li>`).join("\n");
-  const stepsHtml = data.steps.map(step => `
+  const stepsHtml = data.steps.map((step, i) => `
     <div itemprop="recipeInstructions" itemscope itemtype="https://schema.org/HowToStep">
-      <p itemprop="text">${step}</p>
+      <strong>${i + 1}.</strong> <p itemprop="text" style="display: inline;">${step}</p>
     </div>
   `).join("\n");
 
@@ -32,24 +134,30 @@ function renderRecipePage(data) {
 <head>
   <title>${data.name}</title>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="canonical" href="${data.sourceUrl}">
   <meta property="og:url" content="${data.sourceUrl}">
   <meta property="og:type" content="article">
+  <style>${SHARED_STYLES}</style>
 </head>
 <body>
-  <div itemscope itemtype="https://schema.org/Recipe">
-    <h1 itemprop="name">${data.name}</h1>
-    ${data.image ? `<img itemprop="image" src="${data.image}" style="max-width:400px">` : ""}
-    <meta itemprop="url" content="${data.sourceUrl}">
-    ${data.yield_ ? `<p>Serves: <span itemprop="recipeYield">${data.yield_}</span></p>` : ""}
-    ${timeHtml}
-    ${nutHtml}
-    ${data.author ? `<p>By: <span itemprop="author">${data.author}</span></p>` : ""}
-    <h2>Ingredients</h2>
-    <ul>${ingHtml}</ul>
-    <h2>Instructions</h2>
-    ${stepsHtml}
-    <p itemprop="description">${data.description}</p>
+  <div class="container">
+    <div itemscope itemtype="https://schema.org/Recipe">
+      <h1 itemprop="name">${data.name}</h1>
+      ${data.author ? `<p class="author">by <span itemprop="author">${data.author}</span></p>` : ""}
+      ${data.image ? `<img itemprop="image" src="${data.image}" alt="${data.name}">` : ""}
+      <meta itemprop="url" content="${data.sourceUrl}">
+
+      ${metaItems.length > 0 ? `<div class="meta">${metaItems.join("")}</div>` : ""}
+      ${nutHtml}
+      ${data.description ? `<div class="description" itemprop="description">${data.description}</div>` : ""}
+
+      <h2>Ingredients</h2>
+      <ul>${ingHtml}</ul>
+
+      <h2>Instructions</h2>
+      <ol>${stepsHtml}</ol>
+    </div>
   </div>
 </body>
 </html>`;
@@ -60,20 +168,26 @@ function renderIndexPage(error = "") {
 <html>
 <head>
   <title>Instagram → AnyList</title>
-  <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 80px auto; padding: 0 20px; }
-    input { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; margin: 10px 0; }
-    button { padding: 10px 24px; font-size: 16px; cursor: pointer; }
-    .error { color: red; margin-top: 16px; }
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>${SHARED_STYLES}
+    .hero { text-align: center; margin-bottom: 32px; }
+    .hero p { color: #666; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h2>Instagram → AnyList</h2>
-  <form method="POST" action="/api/convert">
-    <input name="url" type="url" placeholder="https://www.instagram.com/reel/..." required>
-    <button type="submit">Convert</button>
-  </form>
-  ${error ? `<p class="error">${error}</p>` : ""}
+  <div class="container">
+    <div class="hero">
+      <h1>📸 → 🍳</h1>
+      <h2 style="border: none; background: none; -webkit-background-clip: unset; -webkit-text-fill-color: unset; color: #333; margin-top: 8px;">Recipe Bridge</h2>
+      <p>Convert Instagram recipes to AnyList</p>
+    </div>
+    <form method="POST" action="/api/convert">
+      <input name="url" type="url" placeholder="Paste Instagram reel URL..." required autofocus>
+      <button type="submit">Convert Recipe</button>
+    </form>
+    ${error ? `<div class="error">${error}</div>` : ""}
+  </div>
 </body>
 </html>`;
 }
