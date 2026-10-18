@@ -9,8 +9,6 @@ const PREP_TIME_RE = /prep\s*:?\s*(\d+)\s*(min|minute|hour|hr)s?/i;
 const COOK_TIME_RE = /cook\s*:?\s*(\d+)\s*(min|minute|hour|hr)s?/i;
 const TIME_RE = /(\d+)\s*(min|minute|hour|hr)s?/i;
 const MACROS_LINE_RE = /(\d+)\s*cal/i;
-const TITLE_LINE_RE = /^[A-Z][a-zA-Z]+(?:\s+[a-zA-Z&\-]+){1,8}$/;
-const TITLE_EXCLUDE_RE = /\b(chopped|shredded|diced|sliced|fresh|dried|cooked|raw|boneless|skinless|beans|seeds|leaves|sauce$|oil$|vinegar$|syrup$)\b/i;
 
 function toIsoDuration(value, unit) {
   if (!value) return "";
@@ -55,23 +53,50 @@ function cleanIngredient(text) {
     .trim();
 }
 
+// Read metadata only before the recipe body, never from ingredient subheadings.
+const PROMO_RE = /(?:https?:\/\/|www\.|@|#|\b(?:comment|follow|subscribe|link in (?:my |the )?bio|dm me|send (?:it|you)|full recipe|save this|tag a friend)\b)/i;
+const BODY_HEADER_RE = /^(?:ingredients?|method|instructions?|directions?|steps?|notes?|tips?|here[’']?s what you need)\s*:?$/i;
+
+function captionMetadata(lines) {
+  const boundary = lines.findIndex(line => BODY_HEADER_RE.test(line) || BULLET_RE.test(line) || NUMBERED_RE.test(line) || QUANTITY_RE.test(line));
+  const intro = lines.slice(0, boundary < 0 ? lines.length : boundary);
+  const titleIndex = intro.findIndex(line => !PROMO_RE.test(line) && !SERVES_RE.test(line) && !PREP_TIME_RE.test(line) && !COOK_TIME_RE.test(line) && !MACROS_LINE_RE.test(line) && /\p{L}/u.test(line));
+  let name = titleIndex < 0 ? "Recipe" : cleanIngredient(intro[titleIndex]);
+  name = name.replace(/^(?:recipe\s*[:：-]\s*|how to make\s+)/i, "")
+    .split(/\s+(?:offers?|is|are|makes?|has|will|comes?)\s+|[.!?](?:\s|$)|\s+[—–]\s+/i)[0]
+    .replace(/\s+recipe$/i, "").trim().slice(0, 120) || "Recipe";
+
+  const notes = [];
+  let inNotes = false;
+  for (const line of lines) {
+    const heading = line.match(/^(?:notes?|tips?)\s*:\s*(.*)$/i);
+    if (heading || /^(?:notes?|tips?)$/i.test(line)) {
+      inNotes = true;
+      if (heading && heading[1]) notes.push(heading[1]);
+      continue;
+    }
+    if (inNotes && BODY_HEADER_RE.test(line)) inNotes = false;
+    if (inNotes && !PROMO_RE.test(line)) notes.push(line);
+  }
+  const introNotes = intro.filter((line, index) => index >= titleIndex && titleIndex >= 0)
+    .join(" ").split(/(?<=[.!?])\s+/)
+    .filter(sentence => !PROMO_RE.test(sentence))
+    .map(sentence => {
+      let text = cleanIngredient(sentence);
+      if (text.toLowerCase().startsWith(name.toLowerCase())) text = text.slice(name.length).replace(/^\s*(?:offers?|is|are|makes?|has)\s+/i, "").trim();
+      return text.replace(/^[.!?:—–-]+\s*/, "");
+    }).filter(text => /\p{L}/u.test(text) && text.toLowerCase() !== name.toLowerCase());
+  return {name, intro, description: (notes.length ? notes : introNotes).map(cleanIngredient).filter(Boolean).join(" ")};
+}
+
 function parseCaption(caption, oembedData, sourceUrl) {
   const lines = caption.split("\n").map(l => l.trim()).filter(l => l);
 
   const author = oembedData.author_name || "";
   const image = oembedData.thumbnail_url || "";
 
-  // --- Title ---
-  let name = "Recipe";
-  for (const l of lines) {
-    if (TITLE_LINE_RE.test(l) && !QUANTITY_RE.test(l) && !SECTION_HEADER_RE.test(l) && !TITLE_EXCLUDE_RE.test(l)) {
-      name = l;
-      break;
-    }
-  }
-  if (name === "Recipe" && lines.length > 0) {
-    name = lines[0].split(/[.!?]/)[0].trim().slice(0, 80);
-  }
+  const metadata = captionMetadata(lines);
+  const name = metadata.name;
 
   // --- Yield, time, nutrition ---
   let yield_ = "";
@@ -79,7 +104,7 @@ function parseCaption(caption, oembedData, sourceUrl) {
   let cookTimeIso = "", cookTimeHuman = "";
   let totalTimeIso = "", totalTimeHuman = "";
   let nutrition = null;
-  let description = "";
+  const description = metadata.description;
 
   for (const l of lines) {
     if (!yield_) {
@@ -118,33 +143,13 @@ function parseCaption(caption, oembedData, sourceUrl) {
     }
   }
 
-  // --- Description ---
-  for (const l of lines) {
-    const cleanL = l.replace(BULLET_RE, "").trim();
-    if (
-      cleanL.length > 40
-      && !MACROS_LINE_RE.test(cleanL)
-      && !l.startsWith("#")
-      && cleanL !== name
-      && !SECTION_HEADER_RE.test(cleanL)
-      && !QUANTITY_RE.test(cleanL)
-      && !NUMBERED_RE.test(l)
-      && !BULLET_RE.test(l)
-    ) {
-      description = cleanL.split(/\.\s+/)[0].trim().slice(0, 300);
-      break;
-    }
-  }
-  if (!description) {
-    description = name;
-  }
-
   // --- Structural parse ---
   const titleLine = name;
   const MODE_NONE = "none";
   const MODE_ING = "ingredients";
   const MODE_STEPS = "steps";
   let mode = MODE_NONE;
+  let inNotes = false;
 
   const ingredients = [];
   const steps = [];
@@ -152,6 +157,10 @@ function parseCaption(caption, oembedData, sourceUrl) {
   for (const line of lines) {
     const cleanBullet = line.replace(BULLET_RE, "").trim();
     const cleanNum = line.replace(NUMBERED_RE, "").trim();
+
+    if (/^(?:notes?|tips?)(?:\s*:|$)/i.test(line)) { inNotes = true; continue; }
+    if (inNotes && BODY_HEADER_RE.test(line)) inNotes = false;
+    if (inNotes || metadata.intro.includes(line) || PROMO_RE.test(line)) continue;
 
     if (cleanBullet === titleLine || HASHTAG_RE.test(line) || line.split("#").length > 2) {
       continue;
@@ -170,6 +179,11 @@ function parseCaption(caption, oembedData, sourceUrl) {
       }
       continue;
     }
+
+    // A named component followed by checkbox ingredients is a subheading.
+    const nextLine = lines[lines.indexOf(line) + 1] || "";
+    if (mode === MODE_ING && !BULLET_RE.test(line) && cleanBullet.split(" ").length >= 2
+        && name.toLowerCase().includes(cleanBullet.toLowerCase()) && BULLET_RE.test(nextLine)) continue;
 
     if (NUMBERED_RE.test(line)) {
       const sentences = cleanNum.split(/\.\s+/);
