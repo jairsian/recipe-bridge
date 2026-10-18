@@ -24,14 +24,14 @@ const SHARED_STYLES = `
   ul, ol { margin: 16px 0 16px 20px; }
   li { margin-bottom: 8px; }
   img { max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; }
-  input, button {
+  input, button, textarea {
     font-family: inherit;
     border: none;
     border-radius: 6px;
     padding: 12px 16px;
     font-size: 16px;
   }
-  input {
+  input, textarea {
     width: 100%;
     border: 1px solid #ddd;
     margin-bottom: 12px;
@@ -117,7 +117,20 @@ const SHARED_STYLES = `
   .instagram-link:hover { opacity: 0.9; }
 `;
 
-function renderRecipePage(data) {
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"']/g, ch => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[ch]));
+}
+
+function normalizeInstagramUrl(value) {
+  const match = String(value || "").match(/https?:\/\/(?:www\.|m\.)?instagram\.com\/(?:reel|reels|p)\/[A-Za-z0-9_-]+\/?(?:[?#][^\s]*)?/i);
+  if (!match) throw new Error("Paste an Instagram reel or post link.");
+  const url = new URL(match[0]);
+  return `https://www.instagram.com${url.pathname.replace(/^\/reels\//, "/reel/").replace(/\/$/, "")}/`;
+}
+
+function renderRecipePage(rawData) {
+  // Escape every caption-derived value before inserting it into HTML.
+  const data = JSON.parse(JSON.stringify(rawData), (key, value) => typeof value === "string" ? escapeHtml(value) : value);
   const nutHtml = data.nutrition ? `
     <div class="nutrition" itemprop="nutrition" itemscope itemtype="https://schema.org/NutritionInformation">
       ${data.nutrition.calories ? `<div class="nutrition-item"><div class="nutrition-label">Calories</div><div class="nutrition-value" itemprop="calories">${data.nutrition.calories}</div></div>` : ""}
@@ -136,9 +149,9 @@ function renderRecipePage(data) {
 
   const ingHtml = data.ingredients.map(ing => `<li itemprop="recipeIngredient">${ing}</li>`).join("\n");
   const stepsHtml = data.steps.map((step, i) => `
-    <div itemprop="recipeInstructions" itemscope itemtype="https://schema.org/HowToStep">
-      <strong>${i + 1}.</strong> <p itemprop="text" style="display: inline;">${step}</p>
-    </div>
+    <li itemprop="recipeInstructions" itemscope itemtype="https://schema.org/HowToStep">
+      <p itemprop="text" style="display: inline;">${step}</p>
+    </li>
   `).join("\n");
 
   return `<!DOCTYPE html>
@@ -147,7 +160,7 @@ function renderRecipePage(data) {
   <title>${data.name}</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="canonical" href="${data.sourceUrl}">
+
   <meta property="og:url" content="${data.sourceUrl}">
   <meta property="og:type" content="article">
   <style>${SHARED_STYLES}</style>
@@ -168,15 +181,17 @@ function renderRecipePage(data) {
       <h2>Ingredients</h2>
       <ul>${ingHtml}</ul>
 
+      ${!data.steps.length ? `<p class="error">This caption contains no cooking instructions. Open the creator’s full recipe, or <a href="/?url=${encodeURIComponent(rawData.sourceUrl)}">paste the complete recipe caption</a> before importing.</p>` : ""}
       <h2>Instructions</h2>
       <ol>${stepsHtml}</ol>
+      <p>Use the AnyList Recipe Import extension on this page to save the recipe.</p>
     </div>
   </div>
 </body>
 </html>`;
 }
 
-function renderIndexPage(error = "") {
+function renderIndexPage(error = "", value = "", caption = "") {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -202,89 +217,134 @@ function renderIndexPage(error = "") {
     </div>
     <form method="POST" action="/api/convert">
       <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-        <input id="urlInput" name="url" type="url" placeholder="Paste Instagram reel URL..." required autofocus style="flex: 1;">
-        <button type="button" id="pasteBtn" style="background: #667eea; padding: 12px 12px; width: auto;">📋</button>
+        <input id="urlInput" name="url" type="url" placeholder="Paste Instagram reel URL..." aria-label="Instagram reel URL" value="${escapeHtml(value)}" required autofocus style="flex: 1;">
+        <button type="button" id="pasteBtn" aria-label="Paste Instagram link" title="Paste Instagram link" style="background: #667eea; padding: 12px 12px; width: auto;">📋</button>
       </div>
+      <p id="pasteStatus" role="status" style="font-size: 14px; color: #666;">In Instagram, choose Share → Copy link, then tap 📋 or paste here.</p>
+      <details${error ? " open" : ""}>
+        <summary>Instagram blocked access? Paste the recipe caption</summary>
+        <label for="captionInput">Recipe caption (ingredients and instructions)</label>
+        <textarea id="captionInput" name="caption" rows="8" maxlength="6000" placeholder="Copy the recipe caption here...">${escapeHtml(caption)}</textarea>
+        <p style="font-size: 14px;">Caption text is included in the generated page URL. Only use text you intend to share.</p>
+      </details>
       <button type="submit" style="width: 100%;">Convert Recipe</button>
     </form>
-    ${error ? `<div class="error">${error}</div>` : ""}
+    ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}
   </div>
   <script>
-    async function pasteFromClipboard() {
+    const input = document.getElementById("urlInput");
+    const status = document.getElementById("pasteStatus");
+    function acceptLink(text) {
+      const match = text.match(/https?:\\/\\/(?:www\\.|m\\.)?instagram\\.com\\/(?:reel|reels|p)\\/[A-Za-z0-9_-]+\\/?(?:[?#][^\\s]*)?/i);
+      if (!match) return false;
+      input.value = match[0];
+      status.textContent = "Instagram link pasted. Ready to convert.";
+      return true;
+    }
+    async function pasteFromClipboard(automatic = false) {
+      if (automatic && input.value.trim()) return;
       try {
+        if (!navigator.clipboard || !window.isSecureContext) throw new Error();
         const text = await navigator.clipboard.readText();
-        if (text) {
-          document.getElementById("urlInput").value = text;
-          document.getElementById("urlInput").focus();
+        if (automatic && input.value.trim()) return;
+        if (!acceptLink(text) && !automatic) status.textContent = "No Instagram link found. In Instagram, choose Share → Copy link first.";
+      } catch {
+        if (!automatic) {
+          status.textContent = "Clipboard access is blocked. Touch and hold the field and choose Paste, or use Ctrl/Cmd+V.";
+          input.focus();
         }
-      } catch (err) {
-        alert("Couldn't access clipboard. Paste manually.");
       }
     }
-
-    document.getElementById("pasteBtn").addEventListener("click", (e) => {
-      e.preventDefault();
-      pasteFromClipboard();
+    document.getElementById("pasteBtn").addEventListener("click", () => pasteFromClipboard());
+    input.addEventListener("paste", event => {
+      const text = event.clipboardData.getData("text");
+      if (acceptLink(text)) event.preventDefault();
     });
-
-    // Auto-paste on desktop on load
-    window.addEventListener("load", () => {
-      if (window.innerWidth > 600) {
-        pasteFromClipboard();
-      }
-    });
+    async function tryAutoPaste() {
+      // Never prompt on load: automatic reads only use an existing browser grant.
+      try {
+        if (!navigator.permissions || document.visibilityState !== "visible") return;
+        const permission = await navigator.permissions.query({name: "clipboard-read"});
+        if (permission.state === "granted") await pasteFromClipboard(true);
+      } catch { /* Safari/Firefox require an explicit paste gesture. */ }
+    }
+    window.addEventListener("load", tryAutoPaste);
+    window.addEventListener("focus", tryAutoPaste);
+    document.addEventListener("visibilitychange", tryAutoPaste);
   </script>
 </body>
 </html>`;
 }
 
-module.exports = async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname;
-  const query = Object.fromEntries(url.searchParams);
-
-  if (pathname === "/api" || pathname === "/") {
-    res.setHeader("Content-Type", "text/html");
-    res.status(200).send(renderIndexPage());
-  } else if (pathname === "/api/convert" && req.method === "POST") {
-    let body = "";
-    req.on("data", chunk => (body += chunk));
-    req.on("end", () => {
-      const params = new URLSearchParams(body);
-      const url = params.get("url");
-      res.setHeader("Location", `/api/recipe?url=${encodeURIComponent(url)}`);
-      res.status(302).end();
-    });
-  } else if (pathname === "/api/recipe" && req.method === "GET") {
-    const instagramUrl = query.url || "";
-    if (!instagramUrl) {
-      res.setHeader("Location", "/api");
-      res.status(302).end();
-      return;
-    }
-
-    try {
-      const clean = instagramUrl.split("?")[0].replace(/\/$/, "");
-      const oembed = `https://www.instagram.com/api/v1/oembed/?url=${encodeURIComponent(clean)}&omitscript=true`;
-      const response = await fetch(oembed, {
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Instagram API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const caption = data.title || "";
-      const recipe = parseCaption(caption, data, instagramUrl);
-
-      res.setHeader("Content-Type", "text/html");
-      res.status(200).send(renderRecipePage(recipe));
-    } catch (error) {
-      res.setHeader("Content-Type", "text/html");
-      res.status(200).send(renderIndexPage(`Couldn't fetch reel: ${error.message}`));
-    }
-  } else {
-    res.status(404).send("Not found");
+async function readForm(req) {
+  // Vercel may have already consumed and parsed the request stream.
+  if (req.body !== undefined) {
+    if (Buffer.isBuffer(req.body) || typeof req.body === "string") return new URLSearchParams(req.body.toString());
+    return new URLSearchParams(req.body);
   }
-};
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (Buffer.byteLength(body) > 32000) throw new Error("Caption is too long.");
+  }
+  return new URLSearchParams(body);
+}
+
+async function handler(req, res) {
+  const requestUrl = new URL(req.url, "https://recipe-bridge.invalid");
+  const pathname = requestUrl.pathname.replace(/\/$/, "") || "/";
+  const sendIndex = (message = "", value = "", caption = "", status = 200) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(status).send(renderIndexPage(message, value, caption));
+  };
+  if ((pathname === "/api" || pathname === "/") && req.method === "GET") return sendIndex("", requestUrl.searchParams.get("url") || "");
+  if (pathname === "/api/convert" && req.method === "POST") {
+    let value = "", caption = "";
+    try {
+      const params = await readForm(req);
+      value = params.get("url") || "";
+      caption = params.get("caption") || "";
+      const normalized = normalizeInstagramUrl(value);
+      if (caption.length > 6000) throw new Error("Caption must be 6,000 characters or fewer.");
+      const query = new URLSearchParams({url: normalized});
+      if (caption.trim()) query.set("caption", caption.trim());
+      if (query.toString().length > 14000) throw new Error("Caption is too long for a shareable recipe link. Shorten it and try again.");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Location", `/api/recipe?${query}`);
+      return res.status(303).end();
+    } catch (error) { return sendIndex(error.message, value, caption, 400); }
+  }
+  if (pathname === "/api/recipe" && req.method === "GET") {
+    const value = requestUrl.searchParams.get("url") || "";
+    const caption = requestUrl.searchParams.get("caption") || "";
+    try {
+      const sourceUrl = normalizeInstagramUrl(value);
+      if (caption.length > 6000) throw new Error("Caption is too long.");
+      let metadata = {}, text = caption.trim();
+      if (!text) {
+        // This public endpoint may be unavailable, rate-limited or omit captions.
+        const response = await fetch(`https://www.instagram.com/api/v1/oembed/?url=${encodeURIComponent(sourceUrl)}&omitscript=true`, {
+          headers: {"User-Agent": "Mozilla/5.0"}, signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) throw new Error(`Instagram could not provide the caption (HTTP ${response.status}). Paste the recipe caption below and convert again.`);
+        metadata = await response.json();
+        text = metadata.title || "";
+      }
+      const recipe = parseCaption(text, metadata, sourceUrl);
+      if (!recipe.ingredients.length) throw new Error("No ingredients found. Paste the recipe caption below.");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      return res.status(200).send(renderRecipePage(recipe));
+    } catch (error) {
+      const message = error.name === "TimeoutError" ? "Instagram timed out. Paste the recipe caption below and convert again." : error.message;
+      return sendIndex(message, value, caption, 422);
+    }
+  }
+  return res.status(404).send("Not found");
+}
+module.exports = handler;
+module.exports.renderIndexPage = renderIndexPage;
+module.exports.renderRecipePage = renderRecipePage;
+module.exports.normalizeInstagramUrl = normalizeInstagramUrl;
