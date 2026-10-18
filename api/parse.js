@@ -1,4 +1,4 @@
-const BULLET_RE = /^[\t\s]*[•\-\*▪️➡️]\t?\s*/;
+const BULLET_RE = /^[\t\s]*[•\-\*▪️➡️▢☐□✅]\t?\s*/;
 const NUMBERED_RE = /^[\t\s]*\d+[\.\)]\t?\s*/;
 const SECTION_HEADER_RE = /^(ingredient|method|instruction|direction|step|for the|to cook|to finish|to serve|note)/i;
 const HASHTAG_RE = /^#\w+/;
@@ -43,6 +43,16 @@ function parseNutrition(line) {
     fat: fat ? `${fat[1]}g` : "",
     fiber: fiber ? `${fiber[1]}g` : ""
   };
+}
+
+function cleanIngredient(text) {
+  return text
+    // Do not use Unicode's Emoji property: it also matches quantity digits.
+    .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200d\ufe0e\ufe0f\u20e3]/gu, "")
+    .replace(/[▢☐☑☒□■▪▫✓✔]/gu, "")
+    .replace(/^\s*(?:[•*–—-]\s*)+/, "")
+    .replace(/[^\S\r\n]+/g, " ")
+    .trim();
 }
 
 function parseCaption(caption, oembedData, sourceUrl) {
@@ -147,6 +157,11 @@ function parseCaption(caption, oembedData, sourceUrl) {
       continue;
     }
 
+    if (/^here[’']?s what you need:?$/i.test(line)) {
+      mode = MODE_ING;
+      continue;
+    }
+
     if (SECTION_HEADER_RE.test(line)) {
       if (/^ingredient/i.test(line)) {
         mode = MODE_ING;
@@ -199,7 +214,7 @@ function parseCaption(caption, oembedData, sourceUrl) {
     author,
     image,
     sourceUrl,
-    ingredients,
+    ingredients: ingredients.map(cleanIngredient).filter(Boolean),
     steps,
     yield_,
     prepTimeIso,
