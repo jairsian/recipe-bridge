@@ -160,7 +160,7 @@ function parseCaption(caption, oembedData, sourceUrl) {
 
     if (/^(?:notes?|tips?)(?:\s*:|$)/i.test(line)) { inNotes = true; continue; }
     if (inNotes && BODY_HEADER_RE.test(line)) inNotes = false;
-    if (inNotes || metadata.intro.includes(line) || PROMO_RE.test(line)) continue;
+    if (inNotes || metadata.intro.includes(line) || (!BULLET_RE.test(line) && !QUANTITY_RE.test(line) && PROMO_RE.test(line))) continue;
 
     if (cleanBullet === titleLine || HASHTAG_RE.test(line) || line.split("#").length > 2) {
       continue;
